@@ -1,12 +1,15 @@
 import streamlit as st
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
-from langchain_community.embeddings import HuggingFaceInstructEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.llms import Ollama  # Import Ollama LLM
+
+
+
 
 # Load environment variables
 load_dotenv()
@@ -37,17 +40,19 @@ def get_text_chunks(text):
     return text_splitter.split_text(text)
 
 # Get embeddings using Hugging Face's Instructor Model
+
 def get_embeddings():
-    model_name = "hkunlp/instructor-large"
+    model_name = "sentence-transformers/all-MiniLM-L6-v2"  # More stable model
     model_kwargs = {'device': 'cpu'}
-    encode_kwargs = {'normalize_embeddings': True}
-    
-    hf_embeddings = HuggingFaceInstructEmbeddings(
+
+    hf_embeddings = HuggingFaceEmbeddings(
         model_name=model_name,
-        model_kwargs=model_kwargs,
-        encode_kwargs=encode_kwargs
+        model_kwargs=model_kwargs
     )
     return hf_embeddings
+
+
+
 
 # Create a FAISS vector store
 def get_vectorstore(text_chunks, embeddings):
