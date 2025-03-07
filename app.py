@@ -3,25 +3,19 @@ from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain_community.embeddings import HuggingFaceInstructEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import HuggingFaceHub
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import CharacterTextSplitter
+from langchain.llms import Ollama  # Import Ollama LLM
 
 # Load environment variables
 load_dotenv()
 
-# Initialize Streamlit app
-st.set_page_config(page_title="Chat with PDFs", page_icon="📚")
-st.header("📚 Chat with Multiple PDFs using AI")
+# Define Ollama-based LLM
+def get_llm():
+    return Ollama(model="mistral")  # Using Mistral; you can replace it with LLaMA3, etc.
 
-# Initialize session state
-if "conversation" not in st.session_state:
-    st.session_state.conversation = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = None
-
-# Function to extract text from PDFs
+# Extract text from PDFs
 def get_pdf_text(pdf_docs):
     text = ""
     for pdf in pdf_docs:
@@ -32,7 +26,7 @@ def get_pdf_text(pdf_docs):
                 text += extracted_text + "\n"
     return text
 
-# Function to split text into chunks
+# Split text into chunks
 def get_text_chunks(text):
     text_splitter = CharacterTextSplitter(
         separator="\n",
@@ -42,22 +36,27 @@ def get_text_chunks(text):
     )
     return text_splitter.split_text(text)
 
-# Function to create FAISS vector store
+# Get embeddings using Hugging Face's Instructor Model
+def get_embeddings():
+    model_name = "hkunlp/instructor-large"
+    model_kwargs = {'device': 'cpu'}
+    encode_kwargs = {'normalize_embeddings': True}
+    
+    hf_embeddings = HuggingFaceInstructEmbeddings(
+        model_name=model_name,
+        model_kwargs=model_kwargs,
+        encode_kwargs=encode_kwargs
+    )
+    return hf_embeddings
+
+# Create a FAISS vector store
 def get_vectorstore(text_chunks, embeddings):
-    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    return vectorstore
+    return FAISS.from_texts(texts=text_chunks, embedding=embeddings)
 
-# Function to create conversation retrieval chain
+# Create a conversational retrieval chain
 def get_conversation_chain(vectorstore):
-    llm = HuggingFaceHub(
-        repo_id="google/flan-t5-xxl",
-        model_kwargs={"temperature": 0.5, "max_length": 512}
-    )
-
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
+    llm = get_llm()  # Use Ollama instead of Hugging Face/OpenAI
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
     return ConversationalRetrievalChain.from_llm(
         llm=llm,
@@ -65,32 +64,47 @@ def get_conversation_chain(vectorstore):
         memory=memory
     )
 
-# Function to handle user input
+# Handle user input
 def handle_user_input(user_question):
+    if st.session_state.conversation is None:
+        st.warning("Please upload and process PDFs before asking questions.")
+        return
+    
     response = st.session_state.conversation({'question': user_question})
     st.session_state.chat_history = response['chat_history']
 
     for i, message in enumerate(st.session_state.chat_history):
         st.write(f"**{'User' if i % 2 == 0 else 'Bot'}:** {message.content}")
 
-# Sidebar for file upload
-with st.sidebar:
-    st.subheader("📂 Upload PDFs")
-    pdf_docs = st.file_uploader("Upload PDFs and click 'Process'", accept_multiple_files=True)
 
-    if st.button("Process"):
-        with st.spinner("Processing PDFs..."):
-            raw_text = get_pdf_text(pdf_docs)
-            text_chunks = get_text_chunks(raw_text)
-            embeddings = HuggingFaceInstructEmbeddings(
-                model_name="hkunlp/instructor-large",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True}
-            )
-            vectorstore = get_vectorstore(text_chunks, embeddings)
-            st.session_state.conversation = get_conversation_chain(vectorstore)
+# Streamlit App
+def main():
+    st.set_page_config(page_title="Chat with PDFs using Local LLM", page_icon="📄")
 
-# Main user input section
-user_question = st.text_input("Ask a question about your documents:")
-if user_question:
-    handle_user_input(user_question)
+    if "conversation" not in st.session_state:
+        st.session_state.conversation = None
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = None
+
+    st.header("Chat with PDFs Using Local LLM 📄🤖")
+    user_question = st.text_input("Ask a question about your PDFs:")
+
+    if user_question:
+        handle_user_input(user_question)
+
+    with st.sidebar:
+        st.subheader("Upload Your PDFs")
+        pdf_docs = st.file_uploader("Upload PDFs and click 'Process'", accept_multiple_files=True)
+
+        if st.button("Process"):
+            with st.spinner("Processing PDFs..."):
+                raw_text = get_pdf_text(pdf_docs)
+                text_chunks = get_text_chunks(raw_text)
+
+                embeddings = get_embeddings()
+                vectorstore = get_vectorstore(text_chunks, embeddings)
+
+                st.session_state.conversation = get_conversation_chain(vectorstore)
+
+if __name__ == "__main__":
+    main()
